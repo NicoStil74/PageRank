@@ -2,5 +2,4 @@ aiohttp
 beautifulsoup4
 numpy
 requests
-nmp
 

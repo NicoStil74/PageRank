@@ -9,7 +9,7 @@ app.use(cors());
 app.use(express.json());
 
 const PROJECT_ROOT = __dirname;
-const PYTHON_CMD = process.env.PYTHON || "python3";
+const PYTHON_CMD = process.env.PYTHON || path.join(__dirname, "venv", "bin", "python3");
 
 // ✅ Health check route
 app.get("/api/ping", (req, res) => {
@@ -24,7 +24,7 @@ app.get("/api/crawl", (req, res) => {
     return res.status(400).json({ error: "Missing ?url parameter" });
   }
 
-  const crawlerPath = path.join(PROJECT_ROOT, "src", "search.py");
+  const crawlerPath = path.join(PROJECT_ROOT, "crawler", "crawler.py");
 
   const py = spawn(
     PYTHON_CMD,
@@ -33,8 +33,10 @@ app.get("/api/crawl", (req, res) => {
       url,
       "--max-pages",
       process.env.MAX_PAGES || "30",
-      "--delay",
-      process.env.CRAWL_DELAY || "0"
+      "--max-depth",
+      process.env.MAX_DEPTH || "2",
+      "--concurrency",
+      process.env.CONCURRENCY || "12"
     ],
     { cwd: PROJECT_ROOT }
   );

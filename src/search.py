@@ -1,12 +1,14 @@
+#!/usr/bin/env python3
 import argparse
 import json
 import sys
 import time
 from collections import deque
 from urllib import robotparser
+from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin, urlparse
+from urllib.request import Request, urlopen
 
-import requests
 from bs4 import BeautifulSoup
 
 
@@ -66,36 +68,33 @@ class Crawler:
             pass
 
     def is_valid(self, url):
-        # Only crawl URLs that stay within the cit.tum.de domain and limit subdomain depth to 2
         parsed = urlparse(url)
-        host = parsed.netloc
-        if not host.endswith("cit.tum.de"):
+        host = parsed.netloc.lower()
+        base_host = urlparse(self.base_url).netloc.lower().replace("www.", "")
+        if not host.replace("www.", "").endswith(base_host):
             return False
-        parts = host.split(".")
-        if "cit" in parts:
-            cit_index = parts.index("cit")
-            subdomain_depth = cit_index
-            if subdomain_depth > 2:
-                return False
         if hasattr(self, "rp") and not self.rp.can_fetch("*", url):
             return False
-        path_segments = [p for p in parsed.path.split("/") if p]
-        if len(path_segments) > 3:
-            return False
-        return True
+        return parsed.scheme in {"http", "https"}
 
     def fetch(self, url):
         try:
             time.sleep(self.delay)
-            resp = requests.get(url, timeout=10)
-            ctype = resp.headers.get("Content-Type", "")
-            if "text/html" not in ctype:
-                return None
-            if resp.status_code == 200:
-                return resp.text
+            request = Request(url, headers={"User-Agent": "Mozilla/5.0 (compatible; TUMSearchCrawler/1.0)"})
+            with urlopen(request, timeout=10) as resp:
+                ctype = (resp.headers.get("Content-Type") or "").lower()
+                if ctype and "text/html" not in ctype and "application/xhtml+xml" not in ctype:
+                    return None
+                raw = resp.read()
+                charset = resp.headers.get_content_charset() or "utf-8"
+                try:
+                    return raw.decode(charset, errors="replace")
+                except LookupError:
+                    return raw.decode("utf-8", errors="replace")
+        except (HTTPError, URLError, TimeoutError, ValueError):
+            return None
         except Exception:
             return None
-        return None
 
     def parse_links(self, html, current_url):
         try:
@@ -104,9 +103,9 @@ class Crawler:
             return set()
         links = set()
         for a in soup.find_all("a", href=True):
-            url = urljoin(current_url, a["href"])
+            url = urljoin(current_url, a["href"]).split("#")[0]
             if self.is_valid(url):
-                links.add(url.split("#")[0])
+                links.add(url.rstrip("/") or url)
         return links
 
     def extract_title(self, html, url):
@@ -122,14 +121,11 @@ class Crawler:
         return fallback_title(url)
 
     def crawl(self, url=None):
-        queue = deque()
-        queue.append(url or self.base_url)
+        queue = deque([url or self.base_url])
 
         while queue and len(self.visited) < self.max_pages:
             current = queue.popleft()
-            if current in self.visited:
-                continue
-            if not self.is_valid(current):
+            if current in self.visited or not self.is_valid(current):
                 continue
 
             self.visited.add(current)
@@ -141,14 +137,13 @@ class Crawler:
 
             self.titles[current] = self.extract_title(html, current)
             links = self.parse_links(html, current)
-            self.graph[current] = list(links)
+            self.graph[current] = sorted(links)
 
             for link in links:
-                if link not in self.visited and self.is_valid(link):
+                if link not in self.visited:
                     queue.append(link)
 
     def as_graph_payload(self, start_url, elapsed):
-        # Ensure all link targets exist as nodes (dangling targets get empty out-links)
         graph = {k: list(v) for k, v in self.graph.items()}
         for targets in list(graph.values()):
             for dst in targets:
@@ -182,13 +177,14 @@ class Crawler:
                 "max_pages": self.max_pages,
                 "delay": self.delay,
                 "domain": urlparse(start_url).netloc,
+                "mode": "legacy-urllib",
                 "total_time": round(elapsed, 2),
             },
         }
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Simple CIT crawler with PageRank output")
+    parser = argparse.ArgumentParser(description="Simple site crawler with PageRank output")
     parser.add_argument("start_url")
     parser.add_argument("--delay", type=float, default=1.0)
     parser.add_argument("--max-pages", type=int, default=30)
@@ -200,7 +196,7 @@ def main():
     elapsed = time.time() - start
 
     payload = crawler.as_graph_payload(args.start_url, elapsed)
-    json.dump(payload, sys.stdout, indent=2, ensure_ascii=False)
+    json.dump(payload, sys.stdout, ensure_ascii=False)
 
 
 if __name__ == "__main__":

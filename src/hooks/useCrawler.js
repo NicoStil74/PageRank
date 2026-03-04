@@ -72,7 +72,11 @@ function useCrawler(initialUrl = "https://www.cit.tum.de") {
             let msg = `Crawler failed with status ${resp.status}`;
             try {
               const body = await resp.json();
-              if (body && body.error) msg = body.error;
+              if (body?.error && body?.detail) {
+                msg = `${body.error}: ${body.detail}`;
+              } else if (body?.error) {
+                msg = body.error;
+              }
             } catch {}
             throw new Error(msg);
           }
@@ -96,9 +100,6 @@ function useCrawler(initialUrl = "https://www.cit.tum.de") {
         lastError ||
           e.message ||
           "Something went wrong while crawling."
-      );
-      alert(
-        "Could not crawl the site after several attempts.\n\nPlease paste another link or cancel."
       );
     } finally {
       setLoading(false);

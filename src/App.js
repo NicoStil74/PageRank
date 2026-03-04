@@ -1,28 +1,10 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
 import "./App.css";
+import { buildForceGraphData, demoData } from "./graphUtils";
 import Sidebar from "./components/Sidebar";
 import useCrawler from "./hooks/useCrawler";
 import GraphCard from "./components/GraphCard";
 import LinkNeighborhood from "./components/LinkNeighborhood";
-
-// Minimal fallback graph used before the first crawl completes
-const demoData = {
-    nodes: [
-        { id: "A", title: "Home", pagerank: 0.4 },
-        { id: "B", title: "About", pagerank: 0.2 },
-        { id: "C", title: "Contact", pagerank: 0.15 },
-        { id: "D", title: "Blog", pagerank: 0.1 },
-        { id: "E", title: "FAQ", pagerank: 0.08 }
-    ],
-    links: [
-        { source: "A", target: "B" },
-        { source: "A", target: "C" },
-        { source: "B", target: "D" },
-        { source: "C", target: "D" },
-        { source: "D", target: "E" },
-        { source: "E", target: "A" }
-    ]
-};
 
 // Build a larger synthetic placeholder graph for loading animation
 const buildLoadingPlaceholder = (count = 80) => {
@@ -91,30 +73,51 @@ function App() {
         runCrawl
     } = useCrawler("https://www.cit.tum.de");
 
-    const sanitizeGraph = (incoming) => {
-        const nodes = (incoming?.nodes || []).map((n) => ({
-            ...n,
-            id: n.id,
-            title: n.title || friendlyTitle(n.id),
-            pagerank: n.pagerank ?? 0
-        }));
-        const links = (incoming?.links || []).map((l) => ({
-            source: typeof l.source === "object" ? l.source.id : l.source,
-            target: typeof l.target === "object" ? l.target.id : l.target
-        }));
-
-        return { nodes, links };
-    };
-
-    // when new crawl data arrives, use the graph returned by search.py
+    // when new crawl data arrives, rebuild graph
     useEffect(() => {
         if (!crawlResult) return;
 
         try {
-            const sanitized = sanitizeGraph(crawlResult);
-            setData(sanitized);
+            const built = buildForceGraphData(crawlResult.graph);
+
+            built.nodes.forEach((n) => {
+                if (crawlResult.titles && crawlResult.titles[n.id]) {
+                    n.title = crawlResult.titles[n.id];
+                } else {
+                    n.title = friendlyTitle(n.id);
+                }
+            });
+
+            built.nodes.forEach((n) => {
+                delete n.x;
+                delete n.y;
+                delete n.vx;
+                delete n.vy;
+            });
+
+            built.links.forEach((l) => {
+                if (typeof l.source === "object") {
+                    delete l.source.x;
+                    delete l.source.y;
+                    delete l.source.vx;
+                    delete l.source.vy;
+                }
+                if (typeof l.target === "object") {
+                    delete l.target.x;
+                    delete l.target.y;
+                    delete l.target.vx;
+                    delete l.target.vy;
+                }
+            });
+
+            built.links = built.links.map((l) => ({
+                source: typeof l.source === "object" ? l.source.id : l.source,
+                target: typeof l.target === "object" ? l.target.id : l.target
+            }));
+
+            setData(built);
         } catch (e) {
-            console.error("Error using crawlResult graph. Using demo graph.", e);
+            console.error("Error building graph from crawlResult. Using demo graph.", e);
             setData(demoData);
         }
     }, [crawlResult]);
