@@ -6,19 +6,34 @@ const API_BASE = "http://localhost:5001";
 // --------------------------
 // URL NORMALIZER
 // --------------------------
-function normalizeUrl(input) {
+export function normalizeUrl(input) {
   let url = (input || "").trim();
 
-  // Add protocol if missing but otherwise leave host/path intact so non-TUM
-  // sites are not rewritten into 404s.
-  if (!/^https?:\/\//i.test(url)) {
-    url = "https://" + url;
+  if (!url) {
+    return null;
+  }
+
+  if (/^\/\//.test(url)) {
+    url = `https:${url}`;
+  } else if (!/^[a-z][a-z\d+.-]*:\/\//i.test(url)) {
+    url = `https://${url}`;
   }
 
   try {
-    return new URL(url).toString();
+    const parsed = new URL(url);
+    const hostname = parsed.hostname.toLowerCase();
+
+    if (!hostname) {
+      return null;
+    }
+
+    parsed.hostname = hostname;
+    parsed.protocol = parsed.protocol || "https:";
+    parsed.hash = "";
+
+    return parsed.toString();
   } catch {
-    return null; // invalid URL
+    return null;
   }
 }
 

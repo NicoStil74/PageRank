@@ -31,10 +31,20 @@ function CrawlerControls({
         Website to crawl
       </span>
       <input
-        type="url"
+        type="text"
+        inputMode="url"
+        autoCapitalize="none"
+        autoCorrect="off"
+        spellCheck={false}
         value={siteUrl}
         onChange={(e) => setSiteUrl(e.target.value)}
-        placeholder="https://www.tum.de"
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && !loading) {
+            e.preventDefault();
+            onCrawl();
+          }
+        }}
+        placeholder="tum.de or https://www.tum.de"
         style={{
           flex: 1,
           maxWidth: 420,

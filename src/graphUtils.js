@@ -79,9 +79,17 @@ export function buildForceGraphData(adj) {
     });
   }
 
+  // Include ALL nodes, not just those with links
+  // This ensures orphan pages are still visible in the graph
+  const nodes = Array.from(nodesMap.values());
+  const validIds = new Set(nodes.map((n) => n.id));
+  const filteredLinks = links.filter(
+    (l) => validIds.has(l.source) && validIds.has(l.target)
+  );
+
   return {
-    nodes: Array.from(nodesMap.values()),
-    links
+    nodes,
+    links: filteredLinks
   };
 }
 

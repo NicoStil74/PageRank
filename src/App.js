@@ -122,10 +122,6 @@ function App() {
         }
     }, [crawlResult]);
 
-    useEffect(() => {
-        runCrawl();
-    }, [runCrawl]);
-
     const {
         graphData,
         neighbors,
@@ -142,15 +138,18 @@ function App() {
         const renderedLinks = data.links.slice(0, MAX_EDGES);
         const degreeLinks = data.links;
 
-        const visibleNodeIds = new Set();
+        // Track which nodes appear in links (for degree calculations)
+        const linkedNodeIds = new Set();
         renderedLinks.forEach((l) => {
             const src = typeof l.source === "object" ? l.source.id : l.source;
             const tgt = typeof l.target === "object" ? l.target.id : l.target;
-            visibleNodeIds.add(src);
-            visibleNodeIds.add(tgt);
+            linkedNodeIds.add(src);
+            linkedNodeIds.add(tgt);
         });
 
-        const visibleNodes = data.nodes.filter((n) => visibleNodeIds.has(n.id));
+        // Include ALL nodes from the crawl, not just those with links
+        // This ensures orphan pages (no incoming/outgoing links) are still visible and clickable
+        const visibleNodes = data.nodes;
 
         const neighbors = new Map();
         const inDegree = new Map();
