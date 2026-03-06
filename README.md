@@ -8,6 +8,7 @@ TUMSearch is an interactive web application that crawls a website, constructs it
 ## ⭐ Features
 ### 🔍 Website Crawler
 - Crawls the `cit.tum.de` domain (subdomains allowed) with polite delays
+   - user can also crawl any other website, but some will block the crawl / not work 
 - Extracts internal hyperlinks and detects page titles
 - Filters non-HTML assets (PDFs, images, binaries, etc.)
 
@@ -16,7 +17,6 @@ TUMSearch is an interactive web application that crawls a website, constructs it
 - Computes PageRank scores server-side (Python) and returns node scores to the UI
 
 ### 🎨 Interactive Visualization
-- Node size/color reflect PageRank score (blue → yellow)
 - Hover to preview; click to explore incoming/outgoing links
 - Smooth force-directed layout powered by `react-force-graph-2d`
 
