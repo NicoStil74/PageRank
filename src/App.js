@@ -136,7 +136,7 @@ function App() {
         const MAX_EDGES = 3000;
 
         const renderedLinks = data.links.slice(0, MAX_EDGES);
-        const degreeLinks = data.links;
+        const degreeLinks = renderedLinks;
 
         // Track which nodes appear in links (for degree calculations)
         const linkedNodeIds = new Set();
@@ -147,9 +147,8 @@ function App() {
             linkedNodeIds.add(tgt);
         });
 
-        // Include ALL nodes from the crawl, not just those with links
-        // This ensures orphan pages (no incoming/outgoing links) are still visible and clickable
-        const visibleNodes = data.nodes;
+        // Only keep nodes that are connected by at least one rendered edge.
+        const visibleNodes = data.nodes.filter((n) => linkedNodeIds.has(n.id));
 
         const neighbors = new Map();
         const inDegree = new Map();
