@@ -2,6 +2,8 @@
 import { useState, useCallback } from "react";
 
 const API_BASE = "http://localhost:5001";
+const CRAWL_TIME_LIMIT_SECONDS = 8;
+const CLIENT_TIMEOUT_MS = (CRAWL_TIME_LIMIT_SECONDS + 4) * 1000;
 
 // --------------------------
 // URL NORMALIZER
@@ -74,49 +76,39 @@ function useCrawler(initialUrl = "https://www.cit.tum.de") {
       return;
     }
 
-    let lastError = "";
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), CLIENT_TIMEOUT_MS);
 
     try {
-      for (let attempt = 1; attempt <= 5; attempt++) {
+      const resp = await fetch(
+        `${API_BASE}/api/crawl?url=${encodeURIComponent(normalized)}&timeout=${CRAWL_TIME_LIMIT_SECONDS}`,
+        { signal: controller.signal }
+      );
+
+      if (!resp.ok) {
+        let msg = `Crawler failed with status ${resp.status}`;
         try {
-          const resp = await fetch(
-            `${API_BASE}/api/crawl?url=${encodeURIComponent(normalized)}`
-          );
-
-          if (!resp.ok) {
-            let msg = `Crawler failed with status ${resp.status}`;
-            try {
-              const body = await resp.json();
-              if (body?.error && body?.detail) {
-                msg = `${body.error}: ${body.detail}`;
-              } else if (body?.error) {
-                msg = body.error;
-              }
-            } catch {}
-            throw new Error(msg);
+          const body = await resp.json();
+          if (body?.error && body?.detail) {
+            msg = `${body.error}: ${body.detail}`;
+          } else if (body?.error) {
+            msg = body.error;
           }
-
-          const json = await resp.json();
-          setCrawlResult(json);
-          lastError = "";
-          break;
-        } catch (e) {
-          lastError = e.message || "Something went wrong while crawling.";
-          if (attempt === 5) {
-            throw e;
-          }
-          // brief backoff
-          await new Promise((res) => setTimeout(res, 400));
-        }
+        } catch {}
+        throw new Error(msg);
       }
+
+      const json = await resp.json();
+      setCrawlResult(json);
     } catch (e) {
       console.error("Crawler request error:", e);
-      setError(
-        lastError ||
-          e.message ||
-          "Something went wrong while crawling."
-      );
+      if (e?.name === "AbortError") {
+        setError(`Crawl exceeded ${CRAWL_TIME_LIMIT_SECONDS}s limit. Try a smaller site or lower depth.`);
+      } else {
+        setError(e.message || "Something went wrong while crawling.");
+      }
     } finally {
+      clearTimeout(timer);
       setLoading(false);
     }
   }, [siteUrl]);

@@ -79,17 +79,20 @@ export function buildForceGraphData(adj) {
     });
   }
 
-  // Include ALL nodes, not just those with links
-  // This ensures orphan pages are still visible in the graph
-  const nodes = Array.from(nodesMap.values());
-  const validIds = new Set(nodes.map((n) => n.id));
-  const filteredLinks = links.filter(
-    (l) => validIds.has(l.source) && validIds.has(l.target)
+  // Only include nodes that have at least one connection (appear in a link)
+  const connectedIds = new Set();
+  links.forEach((l) => {
+    connectedIds.add(l.source);
+    connectedIds.add(l.target);
+  });
+  
+  const nodes = Array.from(nodesMap.values()).filter(
+    (node) => connectedIds.has(node.id)
   );
 
   return {
     nodes,
-    links: filteredLinks
+    links
   };
 }
 

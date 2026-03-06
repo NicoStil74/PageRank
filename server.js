@@ -11,6 +11,14 @@ app.use(express.json());
 const PROJECT_ROOT = __dirname;
 const PYTHON_CMD = process.env.PYTHON || path.join(__dirname, "venv", "bin", "python3");
 
+const DEFAULT_CRAWL_TIMEOUT = Number(process.env.CRAWL_TIMEOUT || 8);
+
+function parseTimeoutSeconds(rawValue) {
+  const value = Number(rawValue);
+  if (!Number.isFinite(value)) return DEFAULT_CRAWL_TIMEOUT;
+  return Math.min(30, Math.max(2, value));
+}
+
 function normalizeInputUrl(input) {
   let value = String(input || "").trim();
 
@@ -53,7 +61,7 @@ app.get("/api/crawl", (req, res) => {
   }
 
   const crawlerPath = path.join(PROJECT_ROOT, "crawler", "crawler.py");
-  const crawlTimeout = process.env.CRAWL_TIMEOUT || "5";
+  const crawlTimeout = parseTimeoutSeconds(req.query.timeout);
 
   const py = spawn(
     PYTHON_CMD,
@@ -67,7 +75,7 @@ app.get("/api/crawl", (req, res) => {
       "--concurrency",
       process.env.CONCURRENCY || "15",
       "--timeout",
-      crawlTimeout
+      String(crawlTimeout)
     ],
     { cwd: PROJECT_ROOT }
   );
@@ -76,7 +84,7 @@ app.get("/api/crawl", (req, res) => {
   const serverTimeout = setTimeout(() => {
     console.error("Crawler process exceeded server timeout, killing...");
     py.kill("SIGTERM");
-  }, (parseFloat(crawlTimeout) + 3) * 1000);  // Extra 3s grace period
+  }, (crawlTimeout + 3) * 1000);  // Extra 3s grace period
 
   let out = "";
   let err = "";

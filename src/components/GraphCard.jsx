@@ -22,13 +22,116 @@ function GraphCard({
   const wrapperRef = useRef(null);
   const [dims, setDims] = useState({ w: 0, h: 0 });
 
-  const handleNodeHover = useCallback(
-    (node) => {
-      // Always update hover state to ensure all nodes are responsive
-      setHoverNode(node || null);
-    },
-    [setHoverNode]
-  );
+  // Treat URL-like IDs and bare domains/subdomains as interactive website nodes.
+  const isWebsiteNode = useCallback((node) => {
+    const value = typeof node?.id === "string" ? node.id.trim() : "";
+    if (!value) return false;
+
+    try {
+      const parsed = new URL(value);
+      return !!parsed.hostname;
+    } catch {
+      return /^(?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/.*)?$/i.test(value);
+    }
+  }, []);
+
+  // Manual hit detection - find node at wrapper-relative coordinates
+  const getNodeAtCoords = useCallback((x, y) => {
+    const fg = graphRef.current;
+    if (!fg || !graphData?.nodes?.length) return null;
+
+    // Convert wrapper-local coordinates to graph coordinates
+    const graphCoords = fg.screen2GraphCoords(x, y);
+    if (!graphCoords || !Number.isFinite(graphCoords.x) || !Number.isFinite(graphCoords.y)) {
+      return null;
+    }
+
+    const { x: gx, y: gy } = graphCoords;
+    const zoom = fg.zoom?.() || 1;
+
+    // Find closest node within a URL-aware hit radius.
+    let closest = null;
+    let closestDist = Infinity;
+
+    for (const node of graphData.nodes) {
+      if (!Number.isFinite(node.x) || !Number.isFinite(node.y)) continue;
+      const websiteNode = isWebsiteNode(node);
+
+      const dx = node.x - gx;
+      const dy = node.y - gy;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      // Keep website/subdomain nodes extra easy to hit.
+      const baseRadius = websiteNode ? 34 : 25;
+      const hitRadius = baseRadius / Math.max(zoom, 0.3);
+
+      if (dist < hitRadius && dist < closestDist) {
+        closestDist = dist;
+        closest = node;
+      }
+    }
+
+    return closest;
+  }, [graphData, graphRef, isWebsiteNode]);
+
+  const getLocalPointerCoords = useCallback((e) => {
+    const wrapperEl = wrapperRef.current;
+    if (!wrapperEl) return null;
+    const rect = wrapperEl.getBoundingClientRect();
+    return {
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top
+    };
+  }, []);
+
+  // Mouse move handler for hover
+  const handleMouseMove = useCallback((e) => {
+    const coords = getLocalPointerCoords(e);
+    if (!coords) return;
+
+    const node = getNodeAtCoords(coords.x, coords.y);
+    const newId = node?.id ?? null;
+    const currentId = hoverNode?.id ?? null;
+    if (newId !== currentId) {
+      setHoverNode(node);
+    }
+  }, [getLocalPointerCoords, getNodeAtCoords, hoverNode, setHoverNode]);
+
+  // Click handler
+  const handleClick = useCallback((e) => {
+    // Ignore clicks on the button
+    if (e.target.tagName === 'BUTTON') return;
+
+    const coords = getLocalPointerCoords(e);
+    if (!coords) return;
+
+    const node = getNodeAtCoords(coords.x, coords.y);
+    
+    if (node) {
+      // CMD/CTRL + click opens link
+      if (e.metaKey || e.ctrlKey) {
+        if (node.id && typeof node.id === "string") {
+          window.open(node.id, "_blank", "noopener,noreferrer");
+        }
+        return;
+      }
+      
+      // Normal click selects node
+      setSelectedNode(node);
+      setHoverNode(null);
+      
+      const fg = graphRef.current;
+      if (fg && Number.isFinite(node.x) && Number.isFinite(node.y)) {
+        const currentZoom = fg.zoom?.() || 1;
+        fg.centerAt(node.x, node.y, 400);
+        fg.zoom(currentZoom * 1.5, 400);
+      }
+    } else {
+      // Click on background deselects
+      setSelectedNode(null);
+      setHoverNode(null);
+    }
+  }, [getLocalPointerCoords, getNodeAtCoords, setSelectedNode, setHoverNode, graphRef]);
 
   useEffect(() => {
     if (graphRef.current) {
@@ -107,10 +210,17 @@ function GraphCard({
         onCrawl={onCrawl}
       />
 
-      <div ref={wrapperRef} className="graph-wrapper" style={{ cursor: hoverNode ? "pointer" : "default" }}>
+      <div 
+        ref={wrapperRef} 
+        className="graph-wrapper" 
+        style={{ cursor: hoverNode ? "pointer" : "default" }}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={() => setHoverNode(null)}
+        onClick={handleClick}
+      >
         <button
           type="button"
-          onClick={handleAutoFit}
+          onClick={(e) => { e.stopPropagation(); handleAutoFit(); }}
           style={{
             position: "absolute",
             right: 12,
@@ -140,56 +250,8 @@ function GraphCard({
           cooldownTicks={120}
           nodeRelSize={loading ? 4 : 5}
           nodeVal={getNodeValue}
-          // CRITICAL: Keep redrawing so hit-detection canvas stays in sync
-          autoPauseRedraw={false}
-          // Custom hit area - very generous to ensure all nodes are clickable
-          nodePointerAreaPaint={(node, color, ctx, globalScale) => {
-            // Skip nodes without valid finite positions
-            if (!Number.isFinite(node.x) || !Number.isFinite(node.y)) return;
-            
-            const nodeRelSize = loading ? 4 : 5;
-            const baseVal = loading
-              ? 1.5 + (node.pagerank || 0) * 50
-              : 4 + (node.pagerank || 0) * 160;
-            const visualRadius = Math.sqrt(Math.max(0, baseVal)) * nodeRelSize;
-            
-            // Very generous hit area: at least 18px in screen space, or 2x visual radius
-            const scale = Math.max(globalScale || 1, 0.1);
-            const minHitRadius = 18 / scale;
-            const hitRadius = Math.max(visualRadius * 2, minHitRadius);
-
-            ctx.fillStyle = color;
-            ctx.beginPath();
-            ctx.arc(node.x, node.y, hitRadius, 0, 2 * Math.PI, false);
-            ctx.fill();
-          }}
-          onNodeHover={handleNodeHover}
-          onNodeClick={(node, event) => {
-            if (event.metaKey || event.ctrlKey) {
-              if (node.id && typeof node.id === "string") {
-                window.open(node.id, "_blank", "noopener,noreferrer");
-              }
-              return;
-            }
-
-            setSelectedNode(node);
-            setHoverNode(null);
-            const fg = graphRef.current;
-            if (fg && typeof node.x === "number" && typeof node.y === "number") {
-              const currentZoom = typeof fg.zoom === "function" ? fg.zoom() : 1;
-              fg.centerAt(node.x, node.y, 400);
-              fg.zoom(currentZoom * 1.5, 400);
-            }
-          }}
-          onBackgroundClick={() => {
-            setSelectedNode(null);
-            setHoverNode(null);
-          }}
-          nodeLabel={(node) =>
-            `${node.title || node.id}\nPageRank: ${
-              node.pagerank != null ? Number(node.pagerank).toFixed(4) : "unknown"
-            }`
-          }
+          // Disable library's pointer interaction - we handle it manually
+          enablePointerInteraction={false}
           nodeColor={(node) => {
             const base = getNodeBaseColor(node);
 
